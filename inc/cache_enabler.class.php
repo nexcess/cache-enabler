@@ -1680,18 +1680,6 @@ final class Cache_Enabler {
             }
             ?>
 
-            <div class="notice notice-info">
-                <p>
-                    <?php
-                    printf(
-                        // translators: %s: KeyCDN
-                        esc_html__( 'Combine Cache Enabler with %s for even better WordPress performance and achieve the next level of caching with a CDN.', 'cache-enabler' ),
-                        '<strong><a href="https://www.keycdn.com?utm_source=wp-admin&utm_medium=plugins&utm_campaign=cache-enabler" target="_blank" rel="nofollow noopener">KeyCDN</a></strong>'
-                    );
-                    ?>
-                </p>
-            </div>
-
             <form method="post" action="options.php">
                 <?php settings_fields( 'cache_enabler' ); ?>
                 <table class="form-table">
