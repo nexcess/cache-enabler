@@ -1662,7 +1662,7 @@ final class Cache_Enabler {
         ?>
 
         <div id="cache_enabler_settings" class="wrap">
-            <h1><?php esc_html_e( 'Cache Enabler Settings', 'cache-enabler' ); ?></h1>
+            <h1><?php esc_html_e( 'Page Cache', 'cache-enabler' ); ?></h1>
 
             <?php
             if ( defined( 'WP_CACHE' ) && ! WP_CACHE ) {
