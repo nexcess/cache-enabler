@@ -1,6 +1,6 @@
 <?php
 /*
-Plugin Name: Cache Enabler
+Plugin Name: Cache Enabler (Nexcess)
 Text Domain: cache-enabler
 Description: Simple and fast WordPress caching plugin.
 Author: KeyCDN
@@ -52,26 +52,20 @@ define( 'CE_DIR', CACHE_ENABLER_DIR );
 
 // hooks
 add_action( 'plugins_loaded', array( 'Cache_Enabler', 'init' ) );
-register_activation_hook( __FILE__, array( 'Cache_Enabler', 'on_activation' ) );
-register_deactivation_hook( __FILE__, array( 'Cache_Enabler', 'on_deactivation' ) );
-register_uninstall_hook( __FILE__, array( 'Cache_Enabler', 'on_uninstall' ) );
 
 // register autoload
-spl_autoload_register( 'cache_enabler_autoload' );
-
-// load required classes
-function cache_enabler_autoload( $class_name ) {
+spl_autoload_register( function ( $class_name ) {
     // check if classes were loaded in advanced-cache.php
-    if ( in_array( $class_name, array( 'Cache_Enabler', 'Cache_Enabler_Engine', 'Cache_Enabler_Disk' ) ) && ! class_exists( $class_name ) ) {
+    if ( in_array( $class_name, [ 'Cache_Enabler', 'Cache_Enabler_Engine', 'Cache_Enabler_Disk' ], true ) ) {
         require_once sprintf(
             '%s/inc/%s.class.php',
             CACHE_ENABLER_DIR,
             strtolower( $class_name )
         );
     }
-}
+} );
 
 // load WP-CLI command
-if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( 'WP_CLI' ) ) {
+if ( defined( 'WP_CLI' ) && WP_CLI && ! class_exists( 'Cache_Enabler_CLI' ) ) {
     require_once CACHE_ENABLER_DIR . '/inc/cache_enabler_cli.class.php';
 }
