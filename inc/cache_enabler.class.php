@@ -525,10 +525,10 @@ final class Cache_Enabler {
 
 
     /**
-     * get cache size
+     * get cache size from database or disk
      *
      * @since   1.0.0
-     * @change  1.5.0
+     * @change  1.7.0
      *
      * @return  integer  $cache_size  cache size in bytes
      */
@@ -538,7 +538,7 @@ final class Cache_Enabler {
         $cache_size = get_transient( self::get_cache_size_transient_name() );
 
         if ( ! $cache_size ) {
-            $cache_size = Cache_Enabler_Disk::cache_size();
+            $cache_size = Cache_Enabler_Disk::get_cache_size();
             set_transient( self::get_cache_size_transient_name(), $cache_size, MINUTE_IN_SECONDS * 15 );
         }
 
@@ -609,6 +609,7 @@ final class Cache_Enabler {
             'clear_site_cache_on_saved_comment'  => 0,
             'clear_site_cache_on_changed_plugin' => 0,
             'convert_image_urls_to_webp'         => 0,
+            'mobile_cache'                       => 0,
             'compress_cache'                     => 0,
             'minify_html'                        => 0,
             'minify_inline_css_js'               => 0,
@@ -899,7 +900,7 @@ final class Cache_Enabler {
      * process clear cache request
      *
      * @since   1.0.0
-     * @change  1.6.0
+     * @change  1.7.0
      */
 
     public static function process_clear_cache_request() {
@@ -921,8 +922,7 @@ final class Cache_Enabler {
 
         // clear page cache
         if ( $_GET['_action'] === 'clearurl' ) {
-            // set clear URL without query string
-            $clear_url = parse_url( home_url(), PHP_URL_SCHEME ) . '://' . parse_url( home_url(), PHP_URL_HOST ) . preg_replace( '/\?.*/', '', $_SERVER['REQUEST_URI'] );
+            $clear_url = parse_url( home_url(), PHP_URL_SCHEME ) . '://' . Cache_Enabler_Engine::$request_headers['Host'] . $_SERVER['REQUEST_URI'];
             self::clear_page_cache_by_url( $clear_url );
         // clear site(s) cache
         } elseif ( $_GET['_action'] === 'clear' ) {
@@ -930,7 +930,7 @@ final class Cache_Enabler {
         }
 
         // redirect to same page
-        wp_safe_redirect( wp_get_referer() );
+        wp_safe_redirect( remove_query_arg( array( '_cache', '_action', '_wpnonce' ) ) );
 
         // set transient for clear notice
         if ( is_admin() ) {
@@ -1644,6 +1644,7 @@ final class Cache_Enabler {
             'clear_site_cache_on_saved_comment'  => (int) ( ! empty( $settings['clear_site_cache_on_saved_comment'] ) ),
             'clear_site_cache_on_changed_plugin' => (int) ( ! empty( $settings['clear_site_cache_on_changed_plugin'] ) ),
             'convert_image_urls_to_webp'         => (int) ( ! empty( $settings['convert_image_urls_to_webp'] ) ),
+            'mobile_cache'                       => (int) ( ! empty( $settings['mobile_cache'] ) ),
             'compress_cache'                     => (int) ( ! empty( $settings['compress_cache'] ) ),
             'minify_html'                        => (int) ( ! empty( $settings['minify_html'] ) ),
             'minify_inline_css_js'               => (int) ( ! empty( $settings['minify_inline_css_js'] ) ),
@@ -1764,6 +1765,13 @@ final class Cache_Enabler {
                                         '<a href="https://optimus.io" target="_blank" rel="nofollow noopener">Optimus</a>'
                                     );
                                     ?>
+                                </label>
+
+                                <br />
+
+                                <label for="cache_enabler_mobile_cache">
+                                    <input name="cache_enabler[mobile_cache]" type="checkbox" id="cache_enabler_mobile_cache" value="1" <?php checked( '1', Cache_Enabler_Engine::$settings['mobile_cache'] ); ?> />
+                                    <?php esc_html_e( 'Create an additional cached version for mobile devices.', 'cache-enabler' ); ?>
                                 </label>
 
                                 <br />
