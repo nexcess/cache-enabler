@@ -1681,22 +1681,6 @@ final class Cache_Enabler {
         <div id="cache_enabler_settings" class="wrap">
             <h1><?php esc_html_e( 'Page Cache', 'cache-enabler' ); ?></h1>
 
-            <?php
-            if ( Cache_Enabler_Engine::$settings['enabled'] && ( ! defined( 'WP_CACHE' ) || ! WP_CACHE ) ) {
-                printf(
-                    '<div class="notice notice-warning"><p>%s</p></div>',
-                    sprintf(
-                        // translators: 1. Cache Enabler 2. define( 'WP_CACHE', true ); 3. wp-config.php 4. require_once ABSPATH . 'wp-settings.php';
-                        esc_html__( '%1$s requires %2$s to be set. Please set this in the %3$s file (must be before %4$s).', 'cache-enabler' ),
-                        '<strong>Cache Enabler</strong>',
-                        "<code>define( 'WP_CACHE', true );</code>",
-                        '<code>wp-config.php</code>',
-                        "<code>require_once ABSPATH . 'wp-settings.php';</code>"
-                    )
-                );
-            }
-            ?>
-
             <form method="post" action="options.php">
                 <?php settings_fields( 'cache_enabler' ); ?>
                 <table class="form-table">
