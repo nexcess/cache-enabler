@@ -2,7 +2,7 @@
 Contributors: keycdn
 Tags: cache, caching, performance, gzip, webp, speed
 Requires at least: 5.1
-Tested up to: 5.6
+Tested up to: 5.7
 Requires PHP: 5.6
 Stable tag: trunk
 License: GPLv2 or later
