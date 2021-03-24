@@ -66,20 +66,20 @@ final class Cache_Enabler {
         add_action( 'cache_enabler_clear_site_cache_by_blog_id', array( __CLASS__, 'clear_site_cache_by_blog_id' ) );
         add_action( 'cache_enabler_clear_page_cache_by_post_id', array( __CLASS__, 'clear_page_cache_by_post_id' ) );
         add_action( 'cache_enabler_clear_page_cache_by_url', array( __CLASS__, 'clear_page_cache_by_url' ) );
+        add_action( 'cache_enabler_clear_expired_cache', array( 'Cache_Enabler_Disk', 'clear_expired_cache' ) );
         add_action( 'ce_clear_cache', array( __CLASS__, 'clear_complete_cache' ) ); // deprecated in 1.6.0
         add_action( 'ce_clear_post_cache', array( __CLASS__, 'clear_page_cache_by_post_id' ) ); // deprecated in 1.6.0
 
         // system clear cache hooks
         add_action( '_core_updated_successfully', array( __CLASS__, 'clear_complete_cache' ) );
         add_action( 'upgrader_process_complete', array( __CLASS__, 'on_upgrade' ), 10, 2 );
-        add_action( 'switch_theme', array( __CLASS__, 'clear_complete_cache' ) );
+        add_action( 'switch_theme', array( __CLASS__, 'clear_site_cache' ) );
         add_action( 'permalink_structure_changed', array( __CLASS__, 'clear_site_cache' ) );
         add_action( 'activated_plugin', array( __CLASS__, 'on_plugin_activation_deactivation' ), 10, 2 );
         add_action( 'deactivated_plugin', array( __CLASS__, 'on_plugin_activation_deactivation' ), 10, 2 );
-        add_action( 'save_post', array( __CLASS__, 'on_save_post' ) );
-        add_action( 'post_updated', array( __CLASS__, 'on_post_updated' ), 10, 3 );
-        add_action( 'wp_trash_post', array( __CLASS__, 'on_trash_post' ) );
-        add_action( 'transition_post_status', array( __CLASS__, 'on_transition_post_status' ), 10, 3 );
+        add_action( 'save_post', array( __CLASS__, 'on_save_trash_post' ) );
+        add_action( 'wp_trash_post', array( __CLASS__, 'on_save_trash_post' ) );
+        add_action( 'pre_post_update', array( __CLASS__, 'on_pre_post_update' ), 10, 2 );
         add_action( 'comment_post', array( __CLASS__, 'on_comment_post' ), 99, 2 );
         add_action( 'edit_comment', array( __CLASS__, 'on_edit_comment' ), 10, 2 );
         add_action( 'transition_comment_status', array( __CLASS__, 'on_transition_comment_status' ), 10, 3 );
@@ -118,6 +118,11 @@ final class Cache_Enabler {
             add_action( 'admin_notices', array( __CLASS__, 'cache_cleared_notice' ) );
             add_action( 'network_admin_notices', array( __CLASS__, 'cache_cleared_notice' ) );
         }
+
+        // cron events
+        if ( ! wp_next_scheduled( 'cache_enabler_clear_expired_cache' ) ) {
+            wp_schedule_event( time(), 'hourly', 'cache_enabler_clear_expired_cache' );
+        }
     }
 
 
@@ -152,16 +157,48 @@ final class Cache_Enabler {
 
     public static function on_upgrade( $obj, $data ) {
 
-        // if setting enabled clear site cache on any plugin update
-        if ( Cache_Enabler_Engine::$settings['clear_site_cache_on_changed_plugin'] ) {
-            self::clear_site_cache();
+        if ( $data['action'] !== 'update' ) {
+            return;
         }
 
-        // check if Cache Enabler has been updated
-        if ( $data['action'] === 'update' && $data['type'] === 'plugin' && array_key_exists( 'plugins', $data ) ) {
-            foreach ( (array) $data['plugins'] as $plugin_file ) {
-                if ( $plugin_file === CACHE_ENABLER_BASE ) {
-                    self::on_cache_enabler_update();
+        // updated themes
+        if ( $data['type'] === 'theme' && isset( $data['themes'] ) ) {
+            $updated_themes = (array) $data['themes'];
+            $sites_themes   = self::each_site( is_multisite(), 'wp_get_theme' );
+
+            // check each site
+            foreach ( $sites_themes as $blog_id => $site_theme ) {
+                // if the active or parent theme has been updated clear site cache
+                if ( in_array( $site_theme->stylesheet, $updated_themes, true ) || in_array( $site_theme->template, $updated_themes, true ) ) {
+                    self::clear_site_cache_by_blog_id( $blog_id );
+                }
+            }
+        }
+
+        // updated plugins
+        if ( $data['type'] === 'plugin' && isset( $data['plugins'] ) ) {
+            $updated_plugins = (array) $data['plugins'];
+
+            // check if Cache Enabler has been updated
+            if ( in_array( CACHE_ENABLER_BASE, $updated_plugins, true ) ) {
+                self::on_cache_enabler_update();
+            // check all updated plugins otherwise
+            } else {
+                $network_plugins = ( is_multisite() ) ? array_flip( (array) get_site_option( 'active_sitewide_plugins', array() ) ) : array();
+
+                // if a network activated plugin has been updated clear complete cache
+                if ( ! empty( array_intersect( $updated_plugins, $network_plugins ) ) ) {
+                    self::clear_complete_cache();
+                // check each site otherwise
+                } else {
+                    $sites_plugins = self::each_site( is_multisite(), 'get_option', array( 'active_plugins', array() ) );
+
+                    foreach ( $sites_plugins as $blog_id => $site_plugins ) {
+                        // if an activated plugin has been updated clear site cache
+                        if ( ! empty( array_intersect( $updated_plugins, (array) $site_plugins ) ) ) {
+                            self::clear_site_cache_by_blog_id( $blog_id );
+                        }
+                    }
                 }
             }
         }
@@ -360,7 +397,7 @@ final class Cache_Enabler {
      * enter each site
      *
      * @since   1.5.0
-     * @change  1.5.0
+     * @change  1.7.0
      *
      * @param   boolean  $network          whether or not each site in network
      * @param   string   $callback         callback function
@@ -374,14 +411,16 @@ final class Cache_Enabler {
 
         if ( $network ) {
             $blog_ids = self::get_blog_ids();
+
             // switch to each site in network
             foreach ( $blog_ids as $blog_id ) {
                 switch_to_blog( $blog_id );
-                $callback_return[] = (int) call_user_func_array( $callback, $callback_params );
+                $callback_return[ $blog_id ] = call_user_func_array( $callback, $callback_params );
                 restore_current_blog();
             }
         } else {
-            $callback_return[] = (int) call_user_func_array( $callback, $callback_params );
+            $blog_id = 1;
+            $callback_return[ $blog_id ] = call_user_func_array( $callback, $callback_params );
         }
 
         return $callback_return;
@@ -431,18 +470,19 @@ final class Cache_Enabler {
      * get blog IDs
      *
      * @since   1.0.0
-     * @change  1.6.0
+     * @change  1.7.0
      *
      * @return  array  $blog_ids  blog IDs
      */
 
     private static function get_blog_ids() {
 
-        $blog_ids = array( '1' );
+        $blog_ids = array( 1 );
 
         if ( is_multisite() ) {
             global $wpdb;
-            $blog_ids = $wpdb->get_col( "SELECT blog_id FROM $wpdb->blogs" );
+
+            $blog_ids = array_map( 'absint', $wpdb->get_col( "SELECT blog_id FROM $wpdb->blogs" ) );
         }
 
         return $blog_ids;
@@ -968,81 +1008,43 @@ final class Cache_Enabler {
 
 
     /**
-     * save post hook
+     * save or trash post hook
      *
      * @since   1.5.0
-     * @change  1.5.0
+     * @change  1.7.0
      *
      * @param   integer  $post_id  post ID
      */
 
-    public static function on_save_post( $post_id ) {
+    public static function on_save_trash_post( $post_id ) {
 
-        // if any published post type is created or updated
-        if ( get_post_status( $post_id ) === 'publish' ) {
+        $post_status = get_post_status( $post_id );
+
+        // if any published post type has been created, updated, or about to be trashed
+        if ( $post_status === 'publish' ) {
             self::clear_cache_on_post_save( $post_id );
         }
     }
 
 
     /**
-     * post updated hook
+     * pre post update hook
      *
-     * @since   1.5.0
-     * @change  1.5.0
+     * @since   1.7.0
+     * @change  1.7.0
      *
-     * @param   integer  $post_id      post ID
-     * @param   WP_Post  $post_after   post instance following the update
-     * @param   WP_Post  $post_before  post instance before the update
+     * @param   integer  $post_id    post ID
+     * @param   array    $post_data  unslashed post data
      */
 
-    public static function on_post_updated( $post_id, $post_after, $post_before ) {
+    public static function on_pre_post_update( $post_id, $post_data ) {
 
-        // if setting disabled and any published post type author changes
-        if ( $post_before->post_author !== $post_after->post_author ) {
-            if ( ! Cache_Enabler_Engine::$settings['clear_site_cache_on_saved_post'] ) {
-                // clear before the update author archives
-                self::clear_author_archives_cache_by_user_id( $post_before->post_author );
-            }
-        }
-    }
+        $old_post_status = get_post_status( $post_id );
+        $new_post_status = $post_data['post_status'];
 
-
-    /**
-     * trash post hook
-     *
-     * @since   1.4.0
-     * @change  1.5.0
-     *
-     * @param   integer  $post_id  post ID
-     */
-
-    public static function on_trash_post( $post_id ) {
-
-        // if any published post type is trashed
-        if ( get_post_status( $post_id ) === 'publish' ) {
-            $trashed = true;
-            self::clear_cache_on_post_save( $post_id, $trashed );
-        }
-    }
-
-
-    /**
-     * transition post status hook
-     *
-     * @since   1.5.0
-     * @change  1.5.0
-     *
-     * @param   string   $new_status  new post status
-     * @param   string   $old_status  old post status
-     * @param   WP_Post  $post        post instance
-     */
-
-    public static function on_transition_post_status( $new_status, $old_status, $post ) {
-
-        // if any published post type status has changed
-        if ( $old_status === 'publish' && in_array( $new_status, array( 'future', 'draft', 'pending', 'private' ) ) ) {
-            self::clear_cache_on_post_save( $post->ID );
+        // if any published post type is about to be updated but not trashed
+        if ( $old_post_status === 'publish' && $new_post_status !== 'trash' ) {
+            self::clear_cache_on_post_save( $post_id );
         }
     }
 
@@ -1230,8 +1232,8 @@ final class Cache_Enabler {
         // get post type archives URL
         $post_type_archives_url = get_post_type_archive_link( $post_type );
 
+        // if post type archives URL exists clear post type archives page and its pagination page(s) cache
         if ( ! empty( $post_type_archives_url ) ) {
-            // clear post type archives page and its pagination page(s) cache
             self::clear_page_cache_by_url( $post_type_archives_url, 'pagination' );
         }
     }
@@ -1241,7 +1243,7 @@ final class Cache_Enabler {
      * clear taxonomies archives pages cache by post ID
      *
      * @since   1.5.0
-     * @change  1.5.0
+     * @change  1.7.0
      *
      * @param   integer  $post_id  post ID
      */
@@ -1255,11 +1257,13 @@ final class Cache_Enabler {
             if ( wp_count_terms( $taxonomy ) > 0 ) {
                 // get terms attached to post
                 $term_ids = wp_get_post_terms( $post_id, $taxonomy,  array( 'fields' => 'ids' ) );
+
                 foreach ( $term_ids as $term_id ) {
+                    // get term archives URL
                     $term_archives_url = get_term_link( (int) $term_id, $taxonomy );
-                    // validate URL and ensure it does not have a query string
-                    if ( filter_var( $term_archives_url, FILTER_VALIDATE_URL ) && ! filter_var( $term_archives_url, FILTER_VALIDATE_URL, FILTER_FLAG_QUERY_REQUIRED ) ) {
-                        // clear taxonomy archives page and its pagination page(s) cache
+
+                    // if term archives URL exists and does not have a query string clear taxonomy archives page and its pagination page(s) cache
+                    if ( ! is_wp_error( $term_archives_url ) && strpos( $term_archives_url, '?' ) === false ) {
                         self::clear_page_cache_by_url( $term_archives_url, 'pagination' );
                     }
                 }
@@ -1321,7 +1325,7 @@ final class Cache_Enabler {
      * clear page cache by post ID
      *
      * @since   1.0.0
-     * @change  1.5.0
+     * @change  1.7.0
      *
      * @param   integer|string  $post_id     post ID
      * @param   string          $clear_type  clear the `pagination` cache or all `subpages` cache instead of only the `page` cache
@@ -1330,17 +1334,15 @@ final class Cache_Enabler {
     public static function clear_page_cache_by_post_id( $post_id, $clear_type = 'page'  ) {
 
         // validate integer
-        if ( ! is_int( $post_id ) ) {
-            // if string try to convert to integer
-            $post_id = (int) $post_id;
-            // conversion failed
-            if ( ! $post_id ) {
-                return;
-            }
-        }
+        $post_id = (int) $post_id;
 
-        // clear page cache
-        self::clear_page_cache_by_url( get_permalink( $post_id ), $clear_type );
+        // get page URL
+        $page_url = ( $post_id ) ? get_permalink( $post_id ) : '';
+
+        // if page URL exists and does not have a query string (e.g. guid) clear page cache
+        if ( ! empty( $page_url ) && strpos( $page_url, '?' ) === false ) {
+            self::clear_page_cache_by_url( $page_url, $clear_type );
+        }
     }
 
 
@@ -1364,7 +1366,7 @@ final class Cache_Enabler {
      * clear site cache by blog ID
      *
      * @since   1.4.0
-     * @change  1.6.1
+     * @change  1.7.0
      *
      * @param   integer|string  $blog_id                      blog ID
      * @param   boolean         $delete_cache_size_transient  whether or not the cache size transient should be deleted
@@ -1373,17 +1375,10 @@ final class Cache_Enabler {
     public static function clear_site_cache_by_blog_id( $blog_id, $delete_cache_size_transient = true ) {
 
         // validate integer
-        if ( ! is_int( $blog_id ) ) {
-            // if string try to convert to integer
-            $blog_id = (int) $blog_id;
-            // conversion failed
-            if ( ! $blog_id ) {
-                return;
-            }
-        }
+        $blog_id = (int) $blog_id;
 
         // check if blog ID exists
-        if ( ! in_array( $blog_id, self::get_blog_ids() ) ) {
+        if ( ! in_array( $blog_id, self::get_blog_ids(), true ) ) {
             return;
         }
 
@@ -1422,31 +1417,33 @@ final class Cache_Enabler {
 
 
     /**
-     * clear cache when any post type is created or updated
+     * clear cache when any post type has been created, updated, or trashed
      *
      * @since   1.5.0
-     * @change  1.5.0
+     * @change  1.7.0
      *
-     * @param   integer  $post_id  post ID
-     * @param   boolean  $trashed  whether this is an existing post being trashed
+     * @param   integer|WP_Post  $post  post ID or post instance
      */
 
-    public static function clear_cache_on_post_save( $post_id, $trashed = false ) {
+    public static function clear_cache_on_post_save( $post ) {
 
-        // get post data
-        $post = get_post( $post_id );
+        if ( is_int( $post ) ) {
+            $post_id = $post;
+            $post    = get_post( $post_id );
+
+            if ( ! is_object( $post ) ) {
+                return;
+            }
+        } elseif ( is_object( $post ) ) {
+            $post_id = $post->ID;
+        }
 
         // if setting enabled clear site cache
         if ( Cache_Enabler_Engine::$settings['clear_site_cache_on_saved_post'] ) {
             self::clear_site_cache();
         // clear page and/or associated cache otherwise
         } else {
-            // if updated or trashed clear page cache
-            if ( strtotime( $post->post_modified_gmt ) > strtotime( $post->post_date_gmt ) || $trashed ) {
-                self::clear_page_cache_by_post_id( $post_id );
-            }
-
-            // clear associated cache
+            self::clear_page_cache_by_post_id( $post_id );
             self::clear_associated_cache( $post );
         }
     }
@@ -1734,7 +1731,7 @@ final class Cache_Enabler {
 
                                 <label for="cache_enabler_clear_site_cache_on_changed_plugin">
                                     <input name="cache_enabler[clear_site_cache_on_changed_plugin]" type="checkbox" id="cache_enabler_clear_site_cache_on_changed_plugin" value="1" <?php checked( '1', Cache_Enabler_Engine::$settings['clear_site_cache_on_changed_plugin'] ); ?> />
-                                    <?php esc_html_e( 'Clear the site cache if a plugin has been activated, updated, or deactivated.', 'cache-enabler' ); ?>
+                                    <?php esc_html_e( 'Clear the site cache if a plugin has been activated or deactivated.', 'cache-enabler' ); ?>
                                 </label>
 
                                 <br />

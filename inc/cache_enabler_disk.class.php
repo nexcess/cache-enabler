@@ -281,6 +281,25 @@ final class Cache_Enabler_Disk {
 
 
     /**
+     * clear all expired files from the cache
+     */
+
+    public static function clear_expired_cache() {
+        $cache_objects = self::get_site_objects( home_url() );
+        $cache_dir     = trailingslashit( self::get_cache_file_dir( home_url() ) );
+
+        // Remove expired cache items.
+        array_walk( $cache_objects, function ( $cache_object ) use ( $cache_dir ) {
+            $file = $cache_dir . $cache_object;
+
+            if ( self::cache_expired( $file ) ) {
+                unlink( $file );
+            }
+        } );
+    }
+
+
+    /**
      * create file for cache
      *
      * @since   1.0.0
@@ -770,7 +789,7 @@ final class Cache_Enabler_Disk {
      * get site file system objects
      *
      * @since   1.6.0
-     * @change  1.6.0
+     * @change  1.7.0
      *
      * @param   string  $site_url      site URL
      * @return  array   $site_objects  site objects
@@ -797,10 +816,10 @@ final class Cache_Enabler_Disk {
             $blog_paths = Cache_Enabler::get_blog_paths();
 
             // check if main site in subdirectory network
-            if ( ! in_array( $blog_path, $blog_paths ) ) {
+            if ( ! in_array( $blog_path, $blog_paths, true ) ) {
                 foreach ( $site_objects as $key => $site_object ) {
                     // delete site object if it does not belong to main site
-                    if ( in_array( '/' . $site_object . '/', $blog_paths ) ) {
+                    if ( in_array( '/' . $site_object . '/', $blog_paths, true ) ) {
                         unset( $site_objects[ $key ] );
                     }
                 }
@@ -885,8 +904,8 @@ final class Cache_Enabler_Disk {
             if ( $filesystem === false ) {
                 if ( is_wp_error( $wp_filesystem->errors ) && $wp_filesystem->errors->has_errors() ) {
                     throw new \RuntimeException(
-                        $wp_filesystem->get_error_message,
-                        ( is_numeric( $wp_error->get_error_code() ) ) ? (int) $wp_error->get_error_code() : 0
+                        $wp_filesystem->errors->get_error_message(),
+                        ( is_numeric( $wp_filesystem->errors->get_error_code() ) ) ? (int) $wp_filesystem->errors->get_error_code() : 0
                     );
                 }
 
