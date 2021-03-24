@@ -32,7 +32,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // constants
-define( 'CACHE_ENABLER_VERSION', '1.7.0-mapps' );
+define( 'CACHE_ENABLER_VERSION', '1.7.1-mapps' );
 define( 'CACHE_ENABLER_MIN_PHP', '5.6' );
 define( 'CACHE_ENABLER_MIN_WP', '5.1' );
 define( 'CACHE_ENABLER_FILE', __FILE__ );

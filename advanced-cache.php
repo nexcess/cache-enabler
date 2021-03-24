@@ -8,7 +8,16 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-$cache_enabler_dir         = WP_CONTENT_DIR . '/mu-plugins/nexcess-mapps/vendor/keycdn/cache-enabler';
+/**
+ * set the CACHE_ENABLER_DIR constant without trailing slash in your wp-config.php file if the plugin resides
+ * somewhere other than path/to/wp-content/plugins/cache-enabler
+ */
+if ( defined( 'CACHE_ENABLER_DIR' ) ) {
+    $cache_enabler_dir = CACHE_ENABLER_DIR;
+} else {
+    $cache_enabler_dir = WP_CONTENT_DIR . '/mu-plugins/nexcess-mapps/vendor/keycdn/cache-enabler';
+}
+
 $cache_enabler_engine_file = $cache_enabler_dir . '/inc/cache_enabler_engine.class.php';
 $cache_enabler_disk_file   = $cache_enabler_dir . '/inc/cache_enabler_disk.class.php';
 
