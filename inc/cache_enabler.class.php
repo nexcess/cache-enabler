@@ -633,7 +633,7 @@ final class Cache_Enabler {
     private static function get_default_settings( $settings_type = null ) {
 
         $system_default_settings = array(
-            'enabled'             => 1,
+            'enabled'             => 0,
             'version'             => (string) CACHE_ENABLER_VERSION,
             'permalink_structure' => (string) self::get_permalink_structure(),
         );
