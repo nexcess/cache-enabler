@@ -2,6 +2,8 @@
 
 Cache Enabler is a lightweight caching plugin for WordPress that makes your website faster by generating static HTML files. Support for converting inline image URLs to WebP and pre-compressing cached pages with Gzip included.
 
+This repository is a fork of KeyCDN's plugin for the purposes of embedding it within the Nexcess Managed Applications (MAPPS) MU plugin ([see all differences](https://github.com/keycdn/cache-enabler/compare/master...nexcess:develop)).
+
 ## Documentation
 
 [Read the plugin documentation](https://www.keycdn.com/support/wordpress-cache-enabler-plugin).

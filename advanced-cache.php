@@ -1,9 +1,7 @@
 <?php
+
 /**
- * Cache Enabler advanced cache
- *
- * @since   1.2.0
- * @change  1.7.0
+ * Advanced page cache drop-in.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -17,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 if ( defined( 'CACHE_ENABLER_DIR' ) ) {
     $cache_enabler_dir = CACHE_ENABLER_DIR;
 } else {
-    $cache_enabler_dir = ( ( defined( 'WP_PLUGIN_DIR' ) ) ? WP_PLUGIN_DIR : WP_CONTENT_DIR . '/plugins' ) . '/cache-enabler';
+    $cache_enabler_dir = WP_CONTENT_DIR . '/mu-plugins/nexcess-mapps/vendor/keycdn/cache-enabler';
 }
 
 $cache_enabler_engine_file = $cache_enabler_dir . '/inc/cache_enabler_engine.class.php';

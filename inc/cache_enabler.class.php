@@ -66,6 +66,7 @@ final class Cache_Enabler {
         add_action( 'cache_enabler_clear_site_cache_by_blog_id', array( __CLASS__, 'clear_site_cache_by_blog_id' ) );
         add_action( 'cache_enabler_clear_page_cache_by_post_id', array( __CLASS__, 'clear_page_cache_by_post_id' ) );
         add_action( 'cache_enabler_clear_page_cache_by_url', array( __CLASS__, 'clear_page_cache_by_url' ) );
+        add_action( 'cache_enabler_clear_expired_cache', array( 'Cache_Enabler_Disk', 'clear_expired_cache' ) );
         add_action( 'ce_clear_cache', array( __CLASS__, 'clear_complete_cache' ) ); // deprecated in 1.6.0
         add_action( 'ce_clear_post_cache', array( __CLASS__, 'clear_page_cache_by_post_id' ) ); // deprecated in 1.6.0
 
@@ -116,6 +117,11 @@ final class Cache_Enabler {
             add_action( 'admin_notices', array( __CLASS__, 'requirements_check' ) );
             add_action( 'admin_notices', array( __CLASS__, 'cache_cleared_notice' ) );
             add_action( 'network_admin_notices', array( __CLASS__, 'cache_cleared_notice' ) );
+        }
+
+        // cron events
+        if ( ! wp_next_scheduled( 'cache_enabler_clear_expired_cache' ) ) {
+            wp_schedule_event( time(), 'hourly', 'cache_enabler_clear_expired_cache' );
         }
     }
 
@@ -320,7 +326,7 @@ final class Cache_Enabler {
 
         // create settings file if action has not been registered for hook yet, like when in activation hook
         if ( has_action( 'update_option_cache_enabler', array( __CLASS__, 'on_update_backend' ) ) === false ) {
-            Cache_Enabler_Disk::create_settings_file( $new_option_value );
+            self::on_update_backend( $old_option_value, $new_option_value );
         }
 
         return $new_option_value;
@@ -340,6 +346,15 @@ final class Cache_Enabler {
     public static function on_update_backend( $option, $new_option_value ) {
 
         Cache_Enabler_Disk::create_settings_file( $new_option_value );
+
+        // handle enabling or disabling the site cache
+        if ( isset( $option['enabled'] ) && $option['enabled'] !== $new_option_value['enabled'] ) {
+            if ( $new_option_value['enabled'] === 1 ) {
+                Cache_Enabler_Disk::setup();
+            } else {
+                self::on_deactivation( false );
+            }
+        }
     }
 
 
@@ -618,6 +633,7 @@ final class Cache_Enabler {
     private static function get_default_settings( $settings_type = null ) {
 
         $system_default_settings = array(
+            'enabled'             => 0,
             'version'             => (string) CACHE_ENABLER_VERSION,
             'permalink_structure' => (string) self::get_permalink_structure(),
         );
@@ -1473,6 +1489,11 @@ final class Cache_Enabler {
             );
         }
 
+        // checks below this line are only applicable if page caching is enabled.
+        if ( ! Cache_Enabler_Engine::$settings['enabled'] ) {
+            return;
+        }
+
         // check advanced-cache.php drop-in
         if ( ! file_exists( WP_CONTENT_DIR . '/advanced-cache.php' ) ) {
             printf(
@@ -1613,6 +1634,7 @@ final class Cache_Enabler {
     public static function validate_settings( $settings ) {
 
         $validated_settings = array(
+            'enabled'                            => (int) ( ! empty( $settings['enabled'] ) ),
             'cache_expires'                      => (int) ( ! empty( $settings['cache_expires'] ) ),
             'cache_expiry_time'                  => (int) $settings['cache_expiry_time'],
             'clear_site_cache_on_saved_post'     => (int) ( ! empty( $settings['clear_site_cache_on_saved_post'] ) ),
@@ -1654,39 +1676,22 @@ final class Cache_Enabler {
         ?>
 
         <div id="cache_enabler_settings" class="wrap">
-            <h1><?php esc_html_e( 'Cache Enabler Settings', 'cache-enabler' ); ?></h1>
-
-            <?php
-            if ( defined( 'WP_CACHE' ) && ! WP_CACHE ) {
-                printf(
-                    '<div class="notice notice-warning"><p>%s</p></div>',
-                    sprintf(
-                        // translators: 1. Cache Enabler 2. define( 'WP_CACHE', true ); 3. wp-config.php 4. require_once ABSPATH . 'wp-settings.php';
-                        esc_html__( '%1$s requires %2$s to be set. Please set this in the %3$s file (must be before %4$s).', 'cache-enabler' ),
-                        '<strong>Cache Enabler</strong>',
-                        "<code>define( 'WP_CACHE', true );</code>",
-                        '<code>wp-config.php</code>',
-                        "<code>require_once ABSPATH . 'wp-settings.php';</code>"
-                    )
-                );
-            }
-            ?>
-
-            <div class="notice notice-info">
-                <p>
-                    <?php
-                    printf(
-                        // translators: %s: KeyCDN
-                        esc_html__( 'Combine Cache Enabler with %s for even better WordPress performance and achieve the next level of caching with a CDN.', 'cache-enabler' ),
-                        '<strong><a href="https://www.keycdn.com?utm_source=wp-admin&utm_medium=plugins&utm_campaign=cache-enabler" target="_blank" rel="nofollow noopener">KeyCDN</a></strong>'
-                    );
-                    ?>
-                </p>
-            </div>
+            <h1><?php esc_html_e( 'Page Cache', 'cache-enabler' ); ?></h1>
 
             <form method="post" action="options.php">
                 <?php settings_fields( 'cache_enabler' ); ?>
                 <table class="form-table">
+                    <tr valign="top">
+                        <th scope="row">
+                            <?php esc_html_e( 'Cache Status', 'cache-enabler' ); ?>
+                        </th>
+                        <td>
+                            <label for="cache_enabler_enabled" class="checkbox--form-control">
+                                <input name="cache_enabler[enabled]" type="checkbox" id="cache_enabler_enabled" value="1" <?php checked( '1', Cache_Enabler_Engine::$settings['enabled'] ); ?> />
+                                <?php esc_html_e( 'Enable the site cache.', 'cache-enabler' ); ?>
+                            </label>
+                        </td>
+                    </tr>
                     <tr valign="top">
                         <th scope="row">
                             <?php esc_html_e( 'Cache Behavior', 'cache-enabler' ); ?>
@@ -1841,7 +1846,9 @@ final class Cache_Enabler {
 
                 <p class="submit">
                     <input type="submit" class="button-secondary" value="<?php esc_html_e( 'Save Changes', 'cache-enabler' ); ?>" />
-                    <input name="cache_enabler[clear_site_cache_on_saved_settings]" type="submit" class="button-primary" value="<?php esc_html_e( 'Save Changes and Clear Site Cache', 'cache-enabler' ); ?>" />
+                    <?php if ( Cache_Enabler_Engine::$settings['enabled'] ) : ?>
+                        <input name="cache_enabler[clear_site_cache_on_saved_settings]" type="submit" class="button-primary" value="<?php esc_html_e( 'Save Changes and Clear Site Cache', 'cache-enabler' ); ?>" />
+                    <?php endif; ?>
                 </p>
             </form>
         </div>
